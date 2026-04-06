@@ -1,0 +1,7 @@
+error: SecureSerialize only supports structs
+ --> tests/ui/enum_unsupported.rs:4:1
+  |
+4 | #[derive(Deserialize, SecureSerialize)]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the derive macro `SecureSerialize` (in Nightly builds, run with -Z macro-backtrace for more info)
