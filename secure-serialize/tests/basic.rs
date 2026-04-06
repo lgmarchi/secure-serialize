@@ -1,7 +1,8 @@
 use secure_serialize::SecureSerialize;
 use serde::Deserialize;
 
-#[derive(Debug, Deserialize, SecureSerialize)]
+#[derive(Deserialize, SecureSerialize)]
+#[secure_serialize(debug)]
 struct BasicConfig {
     pub host: String,
     #[redact]
@@ -46,7 +47,8 @@ fn test_unredacted_serialization() {
 
 #[test]
 fn test_multiple_redacted_fields() {
-    #[derive(Debug, Deserialize, SecureSerialize)]
+    #[derive(Deserialize, SecureSerialize)]
+    #[secure_serialize(debug)]
     struct MultiSecretConfig {
         pub username: String,
         #[redact]
@@ -76,7 +78,8 @@ fn test_multiple_redacted_fields() {
 
 #[test]
 fn test_no_redacted_fields() {
-    #[derive(Debug, Deserialize, SecureSerialize)]
+    #[derive(Deserialize, SecureSerialize)]
+    #[secure_serialize(debug)]
     struct PublicConfig {
         pub host: String,
         pub port: u16,

@@ -9,15 +9,22 @@ use syn::{
 ///
 /// Fields marked with `#[redact]` or `#[redact(with = "...")]` will be redacted when serialized.
 ///
-/// # Attributes
+/// # Field attributes
 ///
 /// - `#[redact]` — Redact with default `"<redacted>"`
 /// - `#[redact(with = "***")]` — Redact with custom string `"***"`
+///
+/// # Struct attributes
+///
+/// - `#[secure_serialize(debug)]` — Generate `fmt::Debug` with redacted fields (declaration order).
+/// - `#[secure_serialize(display)]` — Generate `fmt::Display` as compact redacted JSON.
+/// - `#[secure_serialize(debug, display)]` — Both.
 ///
 /// # Example
 ///
 /// ```ignore
 /// #[derive(SecureSerialize, Deserialize)]
+/// #[secure_serialize(debug, display)]
 /// struct Config {
 ///     pub host: String,
 ///     #[redact]
@@ -26,14 +33,20 @@ use syn::{
 ///     pub password: String,
 /// }
 /// ```
-#[proc_macro_derive(SecureSerialize, attributes(redact))]
+#[proc_macro_derive(SecureSerialize, attributes(redact, secure_serialize))]
 pub fn derive_secure_serialize(input: TokenStream) -> TokenStream {
     let DeriveInput {
         ident,
         data,
         generics,
+        attrs,
         ..
     } = parse_macro_input!(input);
+
+    let (gen_debug, gen_display) = match extract_secure_serialize_options(&attrs) {
+        Ok(v) => v,
+        Err(e) => return e.to_compile_error().into(),
+    };
 
     let fields = match data {
         Data::Struct(s) => match s.fields {
@@ -173,6 +186,60 @@ pub fn derive_secure_serialize(input: TokenStream) -> TokenStream {
         })
         .collect();
 
+    let debug_field_fragments: Vec<proc_macro2::TokenStream> = fields
+        .iter()
+        .map(|field| {
+            let name = field.ident.as_ref().expect("named field");
+            let name_literal = name.to_string();
+            let (is_redacted, redaction_string) = extract_redact_attribute(&field.attrs);
+            if is_redacted {
+                let redact_ts = redaction_string
+                    .parse::<proc_macro2::TokenStream>()
+                    .unwrap_or_else(|_| quote! { "<redacted>" });
+                quote! {
+                    .field(#name_literal, &#redact_ts)
+                }
+            } else {
+                quote! {
+                    .field(#name_literal, &self.#name)
+                }
+            }
+        })
+        .collect();
+
+    let debug_impl = if gen_debug {
+        quote! {
+            impl #impl_generics ::std::fmt::Debug for #ident #ty_generics #where_clause {
+                fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                    f.debug_struct(stringify!(#ident))
+                        #(#debug_field_fragments)*
+                        .finish()
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+
+    let display_impl = if gen_display {
+        quote! {
+            impl #impl_generics ::std::fmt::Display for #ident #ty_generics #where_clause {
+                fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+                    match ::serde_json::to_string(self) {
+                        Ok(ref json) => f.write_str(json),
+                        Err(e) => ::std::write!(
+                            f,
+                            concat!(stringify!(#ident), "(serialization error: {})"),
+                            e
+                        ),
+                    }
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     let expanded = quote! {
         impl #impl_generics ::serde::Serialize for #ident #ty_generics #where_clause {
             fn serialize<S>(&self, serializer: S) -> ::std::result::Result<S::Ok, S::Error>
@@ -229,11 +296,75 @@ pub fn derive_secure_serialize(input: TokenStream) -> TokenStream {
                 Ok(JsonValue::Object(result))
             }
         }
+
+        #debug_impl
+        #display_impl
     };
 
     let tokens = expanded.into();
     // eprintln!("GENERATED TOKENS:\n{}", tokens);
     tokens
+}
+
+/// Parses `#[secure_serialize(debug)]`, `#[secure_serialize(display)]`, or both on the struct.
+fn extract_secure_serialize_options(attrs: &[syn::Attribute]) -> Result<(bool, bool), syn::Error> {
+    let mut gen_debug = false;
+    let mut gen_display = false;
+
+    for attr in attrs {
+        if !attr.path().is_ident("secure_serialize") {
+            continue;
+        }
+
+        match &attr.meta {
+            Meta::Path(_) => {
+                return Err(syn::Error::new_spanned(
+                    attr,
+                    "expected #[secure_serialize(debug)], #[secure_serialize(display)], or both",
+                ));
+            }
+            Meta::List(list) => {
+                if list.tokens.is_empty() {
+                    return Err(syn::Error::new_spanned(
+                        list,
+                        "expected `debug` and/or `display` inside #[secure_serialize(...)]",
+                    ));
+                }
+                let metas = Punctuated::<Meta, Token![,]>::parse_terminated
+                    .parse2(list.tokens.clone())?;
+                for meta in metas {
+                    match meta {
+                        Meta::Path(p) => {
+                            if p.is_ident("debug") {
+                                gen_debug = true;
+                            } else if p.is_ident("display") {
+                                gen_display = true;
+                            } else {
+                                return Err(syn::Error::new_spanned(
+                                    p,
+                                    "expected `debug` or `display`",
+                                ));
+                            }
+                        }
+                        other => {
+                            return Err(syn::Error::new_spanned(
+                                other,
+                                "expected `debug` or `display`",
+                            ));
+                        }
+                    }
+                }
+            }
+            Meta::NameValue(_) => {
+                return Err(syn::Error::new_spanned(
+                    attr,
+                    "invalid #[secure_serialize(...)] syntax",
+                ));
+            }
+        }
+    }
+
+    Ok((gen_debug, gen_display))
 }
 
 /// Extracts the `#[redact]` or `#[redact(with = "...")]` attribute from a field.

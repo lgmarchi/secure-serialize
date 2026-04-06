@@ -19,7 +19,8 @@ where
     serde_json::from_str(&s).map_err(serde::de::Error::custom)
 }
 
-#[derive(Debug, Deserialize, SecureSerialize)]
+#[derive(Deserialize, SecureSerialize)]
+#[secure_serialize(debug)]
 struct ConfigWithCustomSerialize {
     pub service_name: String,
 

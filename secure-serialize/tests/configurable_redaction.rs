@@ -1,7 +1,8 @@
 use secure_serialize::SecureSerialize;
 use serde::Deserialize;
 
-#[derive(Debug, Deserialize, SecureSerialize)]
+#[derive(Deserialize, SecureSerialize)]
+#[secure_serialize(debug)]
 struct ConfigWithCustomRedaction {
     pub app_name: String,
 
@@ -49,7 +50,8 @@ fn test_custom_redaction_unredacted() {
 
 #[test]
 fn test_multiple_different_redactions() {
-    #[derive(Debug, Deserialize, SecureSerialize)]
+    #[derive(Deserialize, SecureSerialize)]
+    #[secure_serialize(debug)]
     struct MixedConfig {
         #[redact]
         pub secret1: String,

@@ -70,6 +70,31 @@
 //! }
 //! ```
 //!
+//! ### `#[secure_serialize(debug)]` and `#[secure_serialize(display)]`
+//!
+//! Optional struct-level attributes (place them on the struct, next to `derive`):
+//!
+//! - **`debug`** — generates `impl std::fmt::Debug` where `#[redact]` fields show the redaction
+//!   string instead of real values. Use this for `{:?}`, `dbg!`, and typical logging.
+//! - **`display`** — generates `impl std::fmt::Display` as compact JSON with the same redaction as
+//!   `serde_json::to_string` (requires `serde_json` in your crate’s dependency graph, same as
+//!   `to_json_unredacted`).
+//!
+//! You can combine them: `#[secure_serialize(debug, display)]`.
+//!
+//! If you omit these, behavior stays as before: only `Serialize` redacts. `#[derive(Debug)]` alone
+//! still prints real secrets — opt in to `#[secure_serialize(debug)]` when you want safe `Debug`.
+//!
+//! ```ignore
+//! #[derive(Deserialize, SecureSerialize)]
+//! #[secure_serialize(debug, display)]
+//! struct Config {
+//!     pub host: String,
+//!     #[redact]
+//!     pub api_key: String,
+//! }
+//! ```
+//!
 //! ## Trait Methods
 //!
 //! - `redacted_keys()` — Returns a static slice of all redacted field names.
@@ -89,8 +114,9 @@ pub const REDACTED: &str = "<redacted>";
 /// Implementors should derive `#[derive(SecureSerialize)]` to automatically generate implementations.
 /// The trait requires `serde::Serialize`, so all redactable types can be serialized.
 ///
-/// When a struct is serialized via `serde::Serialize` (including in `Display`, `Debug`, and
-/// logging), fields marked with `#[redact]` are automatically replaced with redaction strings.
+/// When a struct is serialized via `serde::Serialize`, fields marked with `#[redact]` are replaced
+/// with redaction strings. For redacted `Debug` / JSON `Display`, add
+/// `#[secure_serialize(debug)]` or `#[secure_serialize(display)]` on the struct.
 ///
 /// For internal operations where you need real values, use `to_json_unredacted()`.
 pub trait SecureSerialize: serde::Serialize {
