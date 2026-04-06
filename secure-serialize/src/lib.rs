@@ -100,9 +100,14 @@
 //! - `redacted_keys()` — Returns a static slice of all redacted field names.
 //! - `to_json_unredacted()` — Returns a JSON value with all real values (no redaction).
 //!   Use this only for internal operations where you need actual values.
+//! - `to_json_with_revealed_fields()` — Same as normal JSON serialization, but you pass a list of
+//!   redacted field names to expose with real values; all other redacted fields stay redacted.
 //!
 //! ⚠️ **Warning**: `to_json_unredacted()` exposes all sensitive data. Use it only internally,
 //! never expose its output to logs, APIs, or external systems.
+//!
+//! ⚠️ **`to_json_with_revealed_fields`** still exposes real values for every field you list. Use
+//! only in controlled contexts (for example internal tooling or selective debugging).
 
 pub use secure_serialize_derive::SecureSerialize;
 
@@ -118,7 +123,8 @@ pub const REDACTED: &str = "<redacted>";
 /// with redaction strings. For redacted `Debug` / JSON `Display`, add
 /// `#[secure_serialize(debug)]` or `#[secure_serialize(display)]` on the struct.
 ///
-/// For internal operations where you need real values, use `to_json_unredacted()`.
+/// For internal operations where you need all real values, use `to_json_unredacted()`. To expose
+/// only a subset of redacted fields, use `to_json_with_revealed_fields()`.
 pub trait SecureSerialize: serde::Serialize {
     /// Returns the names of all redacted fields in this struct.
     ///
@@ -139,4 +145,46 @@ pub trait SecureSerialize: serde::Serialize {
     /// let full_values = config.to_json_unredacted()?;
     /// ```
     fn to_json_unredacted(&self) -> Result<serde_json::Value, serde_json::Error>;
+
+    /// Serializes this value to JSON like [`serde::Serialize`], then replaces listed redacted
+    /// fields with their real values from [`Self::to_json_unredacted`].
+    ///
+    /// Only names that appear in [`Self::redacted_keys()`] are affected. Other keys in `reveal`
+    /// are ignored (non-redacted fields are already serialized normally). Unknown or misspelled
+    /// redacted names leave the redaction placeholder in place if the key is missing from the
+    /// unredacted map.
+    ///
+    /// This runs two JSON serializations (redacted snapshot plus full unredacted). Prefer
+    /// [`Self::to_json_unredacted`] when you need every secret, or plain `serde_json::to_value`
+    /// when you need none.
+    ///
+    /// ⚠️ **Security**: Each revealed field exposes real sensitive data. Use only in trusted,
+    /// internal code paths.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let json = config.to_json_with_revealed_fields(&["api_key"])?;
+    /// // api_key is real; other #[redact] fields stay redacted
+    /// ```
+    fn to_json_with_revealed_fields(
+        &self,
+        reveal: &[&str],
+    ) -> Result<serde_json::Value, serde_json::Error> {
+        let mut v = serde_json::to_value(self)?;
+        let full = self.to_json_unredacted()?;
+        let reds = Self::redacted_keys();
+        if let (serde_json::Value::Object(map), serde_json::Value::Object(full_map)) =
+            (&mut v, full)
+        {
+            for &key in reveal {
+                if reds.iter().any(|&k| k == key) {
+                    if let Some(val) = full_map.get(key) {
+                        map.insert(key.to_string(), val.clone());
+                    }
+                }
+            }
+        }
+        Ok(v)
+    }
 }
