@@ -5,10 +5,10 @@ resolver = "2"
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-authors = ["Your Name <you@example.com>"]
+authors = ["Lucas Marchi <lucasgmarchi@gmail.com>"]
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/yourusername/secure-serialize"
+repository = "https://github.com/lgmarchi/secure-serialize"
 documentation = "https://docs.rs/secure-serialize"
-homepage = "https://github.com/yourusername/secure-serialize"
+homepage = "https://github.com/lgmarchi/secure-serialize"
 keywords = ["serde", "security", "redaction", "serialization"]
 categories = ["encoding", "no-std"]
